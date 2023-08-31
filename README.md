@@ -183,3 +183,707 @@ if(param1 != null){
 ```
 
 ![](./img/12.png)
+
+## 11. 解决公共字段自动填充问题
+
+- 自定义注解AutoFill，用于标识需要进行公共字段自动填充的方法
+
+```java
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface AutoFill {
+    //数据库操作类型
+    OperationType value();
+}
+```
+
+- 自定义切面类AutoFillAspect，统一拦截加入类AutoFill注解的方法，通过反射为公共子段赋值
+
+```java
+@Aspect
+@Component
+@Slf4j
+public class AutoFillAspect {
+    /**
+     * 切入点
+     */
+    //切点表达式
+    @Pointcut("execution(* com.sky.mapper.*.*(..)) && @annotation(com.sky.annotation.AutoFill)")
+    public void autoFillPointCut(){
+
+    }
+
+    /**
+     * 前置通知，在通知中给公共子段赋值
+     */
+    @Before("autoFillPointCut()")
+    public void autoFill(JoinPoint joinPoint){
+        log.info("开始进行公共子段填充");
+        //1.获取到当前被拦截的方法上的数据库操作类型
+        /**
+         *这段代码是用于获取连接点的签名信息。具体而言，它使用joinPoint.getSignature()方法来获取连接点的签名对象，并将其赋值给名为"signature"的变量。
+         *通过这个签名对象，我们可以获取连接点的一些关键信息，如方法名、声明类型、参数等。这个代码片段通常用于在切面中获取连接点的详细信息，以便进行后续的处理或记录。
+         */
+        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+        AutoFill autoFill=signature.getMethod().getAnnotation(AutoFill.class);
+        OperationType value = autoFill.value();
+        //2.获取到当前被拦截方法的参数—实体对象
+        Object[] args = joinPoint.getArgs();
+        if (args==null || args.length==0) {
+            return;
+        }
+        Object arg = args[0];
+        //3.准备赋值的数据
+        LocalDateTime now = LocalDateTime.now();
+        Long currentid= BaseContext.getCurrentId();
+        //4.根据当前不同的操作类型，为对应的属性通过反射来赋值
+        if(value==OperationType.INSERT){
+            //为四个公共子段赋值
+            try {
+                Method setCreateTimes = arg.getClass().getDeclaredMethod(AutoFillConstant.SET_CREATE_TIME, LocalDateTime.class);
+                Method setCreateUser = arg.getClass().getDeclaredMethod(AutoFillConstant.SET_CREATE_USER, Long.class);
+                Method setUpdateTime = arg.getClass().getDeclaredMethod(AutoFillConstant.SET_UPDATE_TIME, LocalDateTime.class);
+                Method setUpdateUser=arg.getClass().getDeclaredMethod(AutoFillConstant.SET_UPDATE_USER,Long.class);
+                //通过反射为对象赋值
+                setCreateTimes.invoke(arg,now);
+                setCreateUser.invoke(arg,currentid);
+                setUpdateTime.invoke(arg,now);
+                setUpdateUser.invoke(arg,currentid);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }else if(value==OperationType.UPDATE){
+            //为两个公共子段赋值
+            try {
+                Method setUpdateTime = arg.getClass().getDeclaredMethod(AutoFillConstant.SET_UPDATE_TIME, LocalDateTime.class);
+                Method setUpdateUser=arg.getClass().getDeclaredMethod(AutoFillConstant.SET_UPDATE_USER,Long.class);
+                //通过反射为对象赋值
+                setUpdateTime.invoke(arg,now);
+                setUpdateUser.invoke(arg,currentid);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+        }
+    }
+
+}
+```
+
+- 在Mapper的方法上加入AutoFill注解
+
+## 12. 阿里云对象存储服务（OSS）使用
+
+- 什么是对象存储：对象存储是一种分布式存储架构，它以对象的形式存储数据。每个对象都包含数据、元数据和唯一标识符。与传统的文件存储和块存储相比，对象存储具有更高的可扩展性、易用性和成本效益。对象存储主要用于存储非结构化数据，如图片、视频、音频、文档等
+
+- 对象存储有什么特点：
+
+  (1) 可扩展性：对象存储可以方便地进行水平扩展，以满足海量数据的存储需求。在需要增加存储容量时，可以快速添加更多的节点，而不影响系统的性能和稳定性。
+
+  (2) 数据冗余和容错：对象存储通过数据副本和纠删码技术来保证数据的可靠性和持久性。即使某些存储节点发生故障，也能够确保数据不会丢失。
+
+  (3) 低成本：对象存储通常采用廉价的硬盘设备，通过软件定义存储技术来实现高性能和高可用性。这使得对象存储在成本方面具有很大的优势。
+
+  (4) 高可用性：对象存储支持跨地域的数据同步和访问，确保数据在不同地域之间的高可用性和低延迟访问
+
+- 阿里云对象存储配置：
+
+**创建Bucket存储空间**
+
+> 选择Bucket列表，进行Bucket创建
+
+![](./img/13.png)
+
+
+
+**上传图片**
+
+![](./img/14.png)
+
+**代码开发**
+
+开发文件上传接口：
+
+```yaml
+sky:  
+	alioss:
+      endpoint: oss-cn-beijing.aliyuncs.com
+      access-key-id: LTAI5t7SPJHRFfQnCLEo9qZj
+      access-key-secret: DYAbGucFcUgP3Jf1RAgMecTqKed1fc
+      bucket-name: cqwm-jack
+```
+
+```yaml
+sky: 
+	  alioss:
+    endpoint: ${sky.alioss.endpoint}
+    access-key-id: ${sky.alioss.access-key-id}
+    access-key-secret: ${sky.alioss.access-key-secret}
+    bucket-name: ${sky.alioss.bucket-name}
+```
+
+配置属性类：
+
+```java
+@Component
+@ConfigurationProperties(prefix = "sky.alioss")
+@Data
+public class AliOssProperties {
+
+    private String endpoint;
+    private String accessKeyId;
+    private String accessKeySecret;
+    private String bucketName;
+
+}
+```
+
+**阿里OSS工具类**
+
+```java
+@Data
+@AllArgsConstructor
+@Slf4j
+public class AliOssUtil {
+
+    private String endpoint;
+    private String accessKeyId;
+    private String accessKeySecret;
+    private String bucketName;
+
+    /**
+     * 文件上传
+     *
+     * @param bytes
+     * @param objectName
+     * @return
+     */
+    public String upload(byte[] bytes, String objectName) {
+
+        // 创建OSSClient实例。
+        OSS ossClient = new OSSClientBuilder().build(endpoint, accessKeyId, accessKeySecret);
+
+        try {
+            // 创建PutObject请求。
+            ossClient.putObject(bucketName, objectName, new ByteArrayInputStream(bytes));
+        } catch (OSSException oe) {
+            System.out.println("Caught an OSSException, which means your request made it to OSS, "
+                    + "but was rejected with an error response for some reason.");
+            System.out.println("Error Message:" + oe.getErrorMessage());
+            System.out.println("Error Code:" + oe.getErrorCode());
+            System.out.println("Request ID:" + oe.getRequestId());
+            System.out.println("Host ID:" + oe.getHostId());
+        } catch (ClientException ce) {
+            System.out.println("Caught an ClientException, which means the client encountered "
+                    + "a serious internal problem while trying to communicate with OSS, "
+                    + "such as not being able to access the network.");
+            System.out.println("Error Message:" + ce.getMessage());
+        } finally {
+            if (ossClient != null) {
+                ossClient.shutdown();
+            }
+        }
+
+        //文件访问路径规则 https://BucketName.Endpoint/ObjectName
+        StringBuilder stringBuilder = new StringBuilder("https://");
+        stringBuilder
+                .append(bucketName)
+                .append(".")
+                .append(endpoint)
+                .append("/")
+                .append(objectName);
+
+        log.info("文件上传到:{}", stringBuilder.toString());
+
+        return stringBuilder.toString();
+    }
+}
+```
+
+## 13. 使用Java操作Redis
+
+Redis的Java客户端很多，常用的几种：
+
+- jedis
+- Lettuce
+- Spring Data Redis
+
+
+
+Spring Data Redis的使用方式：
+
+- 导入Spring Data Redis的maven 坐标
+- 配置Redis数据源
+
+```xml
+spring:
+  redis:
+    host: ${sky.redis.host}
+    port: ${sky.redis.port}
+```
+
+- 编写配置类，创建RedisTemplate对象
+
+```java
+@Configuration
+@Slf4j
+public class RedisConfiguration {
+
+    @Bean
+    public RedisTemplate redisTemplate(RedisConnectionFactory redisConnectionFactory){
+        RedisTemplate redisTemplate=new RedisTemplate();
+        //设置连接工厂对象
+        redisTemplate.setConnectionFactory(redisConnectionFactory);
+        //设置Redis key的序列化器
+        redisTemplate.setKeySerializer(new StringRedisSerializer());
+        return  redisTemplate;
+    }
+}
+```
+
+- 通过RedisTemplate对象操作Redis
+
+```java
+@SpringBootTest
+public class SpringdateRedis {
+    @Autowired
+    private RedisTemplate redisTemplate;
+
+    @Test
+    public void testRedisTemplate(){
+        System.out.println(redisTemplate);
+        //操作String类型的对象
+        ValueOperations valueOperations = redisTemplate.opsForValue();
+        //操作hash类型的对象
+        HashOperations hashOperations = redisTemplate.opsForHash();
+        //操作list类型对象
+        ListOperations listOperations = redisTemplate.opsForList();
+        //获得Set类型的操作对象
+        SetOperations setOperations = redisTemplate.opsForSet();
+        //获得Zset类型的操作对象
+        ZSetOperations zSetOperations = redisTemplate.opsForZSet();
+    }
+
+    @Test
+    public void testString() throws InterruptedException {
+        //set get setex setnx
+        redisTemplate.opsForValue().set("city","北京");
+        String city = (String) redisTemplate.opsForValue().get("city");
+        System.out.println(city);
+        redisTemplate.opsForValue().set("name","上海",5, TimeUnit.SECONDS);
+        String name = (String) redisTemplate.opsForValue().get("name");
+        System.out.println(name);
+        Thread.sleep(Long.parseLong("5000"));
+        System.out.println(name);
+        redisTemplate.opsForValue().setIfAbsent("lock","1");
+        redisTemplate.opsForValue().setIfAbsent("lock","2");
+        System.out.println("lock");
+
+    }
+
+    @Test
+    public void testHash(){
+        //hset hget hdel hkeys hvals
+        HashOperations hashOperations = redisTemplate.opsForHash();
+        //向redis中插入对象数据，一个key就表示一个对象
+        hashOperations.put("100","name","tom");
+        hashOperations.put("100","age","15");
+        //获得hash数据
+        String name = (String) hashOperations.get("100", "name");
+        System.out.println(name);
+        //获得hash表所有keys
+        Set keys = hashOperations.keys("100");
+        System.out.println(keys);
+        //获得所有value
+        List values = hashOperations.values("100");
+        System.out.println(values);
+        //删除age
+        hashOperations.delete("100","age");
+    }
+  
+  @Test
+  public void testList(){
+    //lpush lrange rpop llen
+    ListOperation listOperation = redisTemplate.opsForList();
+    
+    listOperation.leftPushAll("mylist","a","b","c");
+    listOperation.leftPush("mylist","b");
+    
+    List mylist=listOperation.range("mylist",0,-1);
+    System.out.println("mylist");
+    
+    listOperation.rightPop("mylist");
+   
+    long size=listOperation.size("mylist");
+    System.out.println(size);
+  }
+
+}
+```
+
+## 14. HttpClient
+
+HttpClient是Apache jakarta Common下的子项目，可以用来提供高效的、最新的、功能丰富的支撑HTTP协议的客户端编程工具包，并且它支持HTTP协议最新的版本和建议
+
+```XML
+<dependency>
+   <groupId>org.apache.httpcompoents</groupId>
+  <artifactId>httpclient</artifactId>
+  <version>4.5.13</version>
+</dependency>
+```
+
+核心API：
+
+- HttpClient
+- HttpClients
+- CloseableHttpClient
+- HttpGet
+- HttpPost
+
+发送请求步骤：
+
+- 创建HttpClient对象
+- 创建Http请求对象（get还是post）
+- 调用HttpClient的execute方法发送请求
+
+入门案例：
+
+```java
+@SpringBootTest
+public class HttpClientTest {
+    /**
+     * 测试httpclient发送get方式的请求
+     *
+     */
+     @Test
+     public void testGet() throws IOException {
+         //创建HTTPclient对象
+         CloseableHttpClient httpclient = HttpClients.createDefault();
+         //创建请求对象
+         HttpGet httpGet = new HttpGet("http://localhost:8080/user/shop/status");
+         //发送请求
+         CloseableHttpResponse response = httpclient.execute(httpGet);
+         //获取状态码
+         int statusCode = response.getStatusLine().getStatusCode();
+         System.out.println(statusCode);
+         //获取响应数据
+         HttpEntity entity = response.getEntity();
+         //解析响应体
+         String s = EntityUtils.toString(entity);
+         System.out.println("服务端响应结果："+s);
+         //关闭资源
+         response.close();
+         httpclient.close();
+     }
+
+    /**
+     * 测试Httpclient发送post方式的请求
+     * 
+     */
+    @Test
+    public void testPost() throws IOException {
+        //创建HTTPclient对象
+        CloseableHttpClient httpclient = HttpClients.createDefault();
+        //创建请求对象
+        HttpPost httpPost = new HttpPost("http://localhost:8080/admin/employee/login");
+        //封装参数
+        JSONObject jsonObject=new JSONObject();
+        jsonObject.put("username","admin");
+        jsonObject.put("password","123456");
+        StringEntity entity=new StringEntity(jsonObject.toString());
+        httpPost.setEntity(entity);
+        //指定请求的编码方式
+        entity.setContentEncoding("utf-8");
+        entity.setContentType("application/json");
+        //发送请求
+        CloseableHttpResponse response = httpclient.execute(httpPost);
+        //获取状态码
+        int statusCode = response.getStatusLine().getStatusCode();
+        System.out.println("响应码:"+statusCode);
+        //获取响应数据
+        HttpEntity entity2 = response.getEntity();
+        //解析响应体
+        String s = EntityUtils.toString(entity);
+        System.out.println("服务端响应结果："+s);
+        //关闭资源
+        response.close();
+        httpclient.close();
+    }
+}
+```
+
+## 15. 微信小程序开发
+
+开发微信小程序之前需要做如下准备工作：
+
+- 注册小程序
+- 完善小程序信息
+- 下载开发者工具
+
+![](./img/15.png)
+
+- 入门案例
+
+  - 了解小程序目录结构
+
+    小程序包含一个描述整体程序的app和多个描述各自页面的page，一个小程序主题由三个文件组成，必须放在项目的根目录下：
+
+    | 文件     | 必需 | 作用             |
+    | -------- | ---- | ---------------- |
+    | app.js   | 是   | 小程序逻辑       |
+    | app.json | 是   | 小程序公共配置   |
+    | app.wxss | 否   | 小程序公共样式表 |
+
+    ![](./img/16.png)
+
+    一个小程序的页面由四个文件组成：
+
+    | 文件类型 | 必需 | 作用       |
+    | -------- | ---- | ---------- |
+    | js       | 是   | 页面逻辑   |
+    | wxml     | 是   | 页面结构   |
+    | json     | 否   | 页面配置   |
+    | wxss     | 否   | 页面样式表 |
+
+    ![](./img/17.png)
+
+  - 编写小程序代码
+
+  **index.js**
+
+  ```js
+  // index.js
+  Page({
+    data:{
+      msg:'hello world',
+      nickName:'',
+      url:'',
+      code:''
+    },
+    //获取微信用户的头像和昵称
+    getUserInfo(e){
+       wx.getUserProfile({
+         desc: '获取用户信息',
+         success: (res) =>{
+           console.log(res.userInfo)
+           this.setData({
+             nickName: res.userInfo.nickName,
+             url: res.userInfo.avatarUrl
+           })
+         }
+         })
+    },
+    //微笑登陆获取用户的授权码
+    wxLogin(){
+      wx.login({
+        success : (res)=>{
+          console.log(res.code)
+          this.setData({
+            code: res.code
+          })
+        }
+      })
+    },
+    //发送异步请求
+    sendRequst(){
+      wx.request({
+        url: 'http://localhost:8080/user/shop/status',
+        method: 'GET',
+        success: (res)=>{
+          console.log(res.data)
+        }
+      })
+    }
+  })
+  
+  ```
+
+  **index.wxml**
+
+  ```xml
+  <!--index.wxml-->
+  <scroll-view class="scrollview" scroll-y type="list">
+    <view class="container">
+      <view>
+         {{msg}}
+      </view>
+      <view>
+         <button bindtap="getUserInfo" type="primary">获取用户信息</button>
+         昵称：{{nickName}}
+  
+         <image style="width: 100px;height:100px" src="{{url}}"></image>
+      </view>
+      <view>
+         <button type="warn" bindtap="wxLogin">微信登陆</button>
+         授权吗: {{code}}
+      </view>
+      <view>
+        <button type="default" bindtap="sendRequst">发送请求</button>
+      </view>
+    </view>
+  </scroll-view>
+  
+  ```
+
+  - 编译小程序
+
+  ![](./img/18.png)
+
+  - 发布小程序：点击上传按钮上传到微信服务器，然后提交审核就行了
+
+## 16. 微信小程序登陆功能
+
+![](./img/19.png)
+
+- 配置登陆所需配置项
+
+```yaml
+#设置jwt
+
+sky:
+  jwt:
+    # 设置jwt签名加密时使用的秘钥
+    user-secret-key: itcast
+    # 设置jwt过期时间
+    user-ttl: 7200000
+    # 设置前端传递过来的令牌名称
+    user-token-name: authentication   
+  wechat:
+    appid: ${sky.wechat.appid}
+    secret: ${sky.wechat.secret}
+
+```
+
+- 控制器
+
+```java
+@PostMapping("/login")
+    @ApiOperation("微信登陆")
+    public Result<UserLoginVO> login(@RequestBody UserLoginDTO userLoginDTO){
+        log.info("微信用户登陆:{}",userLoginDTO.getCode());
+        //微信登陆
+        User user = userService.wechatLogin(userLoginDTO);
+        //为微信用户生成jwt令牌
+        Map<String,Object> claims=new HashMap<>();
+        //唯一标识用户
+        claims.put(JwtClaimsConstant.USER_ID,user.getId());
+        String token=JwtUtil.createJWT(jwtProperties.getUserSecretKey(),jwtProperties.getUserTtl(),claims);
+        UserLoginVO userLoginVo = UserLoginVO.builder()
+                .id(user.getId())
+                .openid(user.getOpenid())
+                .token(token)
+                .build();
+        return Result.success(userLoginVo);
+    }
+```
+
+- 服务层
+
+```java
+@Service
+public class UserServiceImpl implements UserService {
+    
+    private static final String longinUrl="https://api.weixin.qq.com/sns/jscode2session";
+    
+    @Autowired
+    private WeChatProperties weChatProperties;
+    
+    @Autowired
+    private UserMapper userMapper;
+    /**
+     * 用户微信登陆
+     * @param userLoginDTO
+     * @return
+     */
+    @Override
+    public User wechatLogin(UserLoginDTO userLoginDTO) {
+        String openid = getOpenId(userLoginDTO.getCode());
+        //判断OpenId是否为空，如果为空则登陆失败（即用户的合法信不是我们来判断的，而是微信官方来判断的）
+        if (openid==null) {
+            throw new LoginFailedException(MessageConstant.LOGIN_FAILED);
+        }
+        
+        //对于外卖系统来说是否是新用户
+        User user = userMapper.getByOpenId(openid);
+        if (user==null) {
+            user=User.builder()
+                    .openid(openid)
+                    .createTime(LocalDateTime.now())
+                    .build();
+            userMapper.insert(user);
+        }
+        //返回用户对象
+        return user;
+    }
+
+    /**
+     * 获取OpenId的私有方法
+     * @param code
+     * @return
+     */
+    private String getOpenId(String code){
+        //调用微信接口服务，获得微信用户的userId
+        Map<String,String> param=new HashMap<>();
+        param.put("appid",weChatProperties.getAppid());
+        param.put("secret",weChatProperties.getSecret());
+        param.put("js_code",code);
+        param.put("grant_type","authorization_code");
+        String json = HttpClientUtil.doGet(longinUrl, param);
+        //判断OpenId是否为空，如果为空则登陆失败（即用户的合法信不是我们来判断的，而是微信官方来判断的）
+        JSONObject jsonObject = JSON.parseObject(json);
+        String openid = jsonObject.getString("openid");
+        return openid;
+    }
+}
+```
+
+## 17. Spring Cache
+
+Spring Cache是一个框架，实现了基于注解的缓存功能，只需要简单地加一个注解，就能实现缓存功能。Spring Cache提供了一层抽象，底层可以切换不同的缓存实现，例如：
+
+- EHCache
+- Caffeine
+- Redis
+
+常用注解：
+
+| 注解           | 说明                                                         |
+| -------------- | ------------------------------------------------------------ |
+| @EnableCaching | 开启缓存注解功能，通常加在启动类上                           |
+| @Cacheable     | 在方法执行前先查询缓存中是否有数据，如果有数据，则直接返回缓存数据，如果没有缓存数据，调用方法并将方法值放到缓存中 |
+| @CachePut      | 将方法的返回值放到缓存中（和前者的区别是，该注解只会放不会查） |
+| @CacheEvict    | 将一条或多条数据从缓存中删除                                 |
+
+```java
+@CachePut(cacheNames="userCache",key="#user.id") //使用SpringCache缓存数据，key的生成结果为userCache::2）(user是方法中的参数名称)
+@CachePut(cacheNames="userCache",key="#result.id") //result关键字代表方法的返回值结果
+@CachePut(cacheNames="userCache",key="#p0.id") 
+@CachePut(cacheNames="userCache",key="#a0.id") //p0和a0都是代表第一个参数
+@CachePut(cacheNames="userCache",key="#root.args[0].id")//获得第一个参数 
+public User save(@RequestBody User user){
+}
+```
+
+```java
+@Cacheable(cacheNames ="userCache",key="#id")
+public User getById(Long id){
+  
+}
+```
+
+```java
+@CacheEvict(cacheNames="userCache",key="#id")
+public void deleteById(Long id){
+  
+}
+
+@CacheEvict(cacheNames="userCache",allEntries=true)
+public void deleteAll(){
+  
+}
+```
+
+## 18. 微信支付
+
+![](./img/18.jpeg)

@@ -1,0 +1,21 @@
+<!--index.wxml-->
+<scroll-view class="scrollview" scroll-y type="list">
+  <view class="container">
+    <view>
+       {{msg}}
+    </view>
+    <view>
+       <button bindtap="getUserInfo" type="primary">获取用户信息</button>
+       昵称：{{nickName}}
+
+       <image style="width: 100px;height:100px" src="{{url}}"></image>
+    </view>
+    <view>
+       <button type="warn" bindtap="wxLogin">微信登陆</button>
+       授权吗: {{code}}
+    </view>
+    <view>
+      <button type="default" bindtap="sendRequst">发送请求</button>
+    </view>
+  </view>
+</scroll-view>
