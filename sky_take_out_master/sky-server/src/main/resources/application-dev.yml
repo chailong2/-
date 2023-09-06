@@ -8,8 +8,8 @@ sky:
     password: 123456
   alioss:
     endpoint: oss-cn-beijing.aliyuncs.com
-    access-key-id: LTAI5t7NxGJorumrmtjmZ3Wv
-    access-key-secret: iPBST4UReDWu4eB3z3myKlmINwXFdf
+    access-key-id: **
+    access-key-secret: **
     bucket-name: cqwm-jack
   redis:
     host: localhost
@@ -20,4 +20,4 @@ sky:
   shop:
     address: 武汉市洪山区武汉理工大学马房山校区西院
   baidu:
-    ak: czAPupNziHkmFA1cHNRIuGRz0bdZZixq
+    ak: **
