@@ -17,3 +17,7 @@ sky:
   wechat:
     appid: wxcdf83551b26a1783
     secret: 82fc1418a4588fa4f35e7d82dc4b35ce
+  shop:
+    address: 武汉市洪山区武汉理工大学马房山校区西院
+  baidu:
+    ak: czAPupNziHkmFA1cHNRIuGRz0bdZZixq

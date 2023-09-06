@@ -887,3 +887,296 @@ public void deleteAll(){
 ## 18. 微信支付
 
 ![](./img/18.jpeg)
+
+**微信支付的使用**
+
+- 商务系统调用微信后台时如何保证数据安全？
+
+获取微信支付平台证书、商户私钥文件
+
+- 在微信后台推送支付结果时需要访问我们的商户平台，现在我们的系统是不是在局域网IP上，为了让微信平台成功访问到我们的商户平台，这时候需要进行内网穿透（使用Cpolar）
+
+Cpolar[使用教程](https://www.cpolar.com/blog/macos-builds-web-services-and-accesses-them-on-the-public-network)
+
+启动复活获取IP地址
+
+```bash
+$ ./cpolar http 8080. #注意我这是mac版，windows命令会有些许不同，然后我的本地tomcat端口是8080
+```
+
+然后我们就可以获取临时域名：
+
+![](./img/20.png)
+
+同时也会记录我们的访问记录
+
+![](./img/21.png)
+
+然后外网就可以访问我们的本地项目了
+
+## 19. 校验收货地址是否超出配送范围
+
+- 环境准备
+
+![](./img/22.png)
+
+- 登录百度地图开放平台
+
+![](./img/23.png)
+
+- 进入控制台，创建应用，获取AK
+
+![](./img/24.png)
+
+- 在配置文件中配置
+
+```yaml
+  shop:
+    address: ${sky.shop.address}
+  baidu:
+    ak: ${sky.baidu.ak}
+```
+
+- 改造OrderServiceImpl，注入上面的配置项：
+
+~~~java
+    @Value("${sky.shop.address}")
+    private String shopAddress;
+
+    @Value("${sky.baidu.ak}")
+    private String ak;
+~~~
+
+- 在OrderServiceImpl中提供校验方法：
+
+~~~java
+/**
+     * 检查客户的收货地址是否超出配送范围
+     * @param address
+     */
+    private void checkOutOfRange(String address) {
+        Map map = new HashMap();
+        map.put("address",shopAddress);
+        map.put("output","json");
+        map.put("ak",ak);
+
+        //获取店铺的经纬度坐标
+        String shopCoordinate = HttpClientUtil.doGet("https://api.map.baidu.com/geocoding/v3", map);
+
+        JSONObject jsonObject = JSON.parseObject(shopCoordinate);
+        if(!jsonObject.getString("status").equals("0")){
+            throw new OrderBusinessException("店铺地址解析失败");
+        }
+
+        //数据解析
+        JSONObject location = jsonObject.getJSONObject("result").getJSONObject("location");
+        String lat = location.getString("lat");
+        String lng = location.getString("lng");
+        //店铺经纬度坐标
+        String shopLngLat = lat + "," + lng;
+
+        map.put("address",address);
+        //获取用户收货地址的经纬度坐标
+        String userCoordinate = HttpClientUtil.doGet("https://api.map.baidu.com/geocoding/v3", map);
+
+        jsonObject = JSON.parseObject(userCoordinate);
+        if(!jsonObject.getString("status").equals("0")){
+            throw new OrderBusinessException("收货地址解析失败");
+        }
+
+        //数据解析
+        location = jsonObject.getJSONObject("result").getJSONObject("location");
+        lat = location.getString("lat");
+        lng = location.getString("lng");
+        //用户收货地址经纬度坐标
+        String userLngLat = lat + "," + lng;
+
+        map.put("origin",shopLngLat);
+        map.put("destination",userLngLat);
+        map.put("steps_info","0");
+
+        //路线规划
+        String json = HttpClientUtil.doGet("https://api.map.baidu.com/directionlite/v1/driving", map);
+
+        jsonObject = JSON.parseObject(json);
+        if(!jsonObject.getString("status").equals("0")){
+            throw new OrderBusinessException("配送路线规划失败");
+        }
+
+        //数据解析
+        JSONObject result = jsonObject.getJSONObject("result");
+        JSONArray jsonArray = (JSONArray) result.get("routes");
+        Integer distance = (Integer) ((JSONObject) jsonArray.get(0)).get("distance");
+
+        if(distance > 5000){
+            //配送距离超过5000米
+            throw new OrderBusinessException("超出配送范围");
+        }
+    }
+~~~
+
+## 20. Spring Task
+
+- 简介
+
+Spring Task是Spring框架提供的任务调度工具，可以按照约定的时间自动执行某个代码逻辑。（定时任务框架，定时来自动执行某段java代码）
+
+- 常用应用场景
+
+1. 信用卡每月还款提醒
+2. 银行贷款每月还款提醒
+3. 火车票售票系统处理未支付的订单
+
+4. 入职记念日为用户发送通知
+
+- cron表达式
+
+cron表达式本质上就是一个字符串，通过cron表达式可以定义任务触发的时间
+
+cron表达式的构成规则：分为6-7个域，由空格分隔开，每个域代表一个含义
+
+> 秒、分钟、小时、日、月、周、年（可选）
+>
+> 例如：描述2022年10月12日上午9点整对应的cron表达式为：
+>
+> 0 0 9 12 10 ？ 2022
+
+[cron表达式在线生成器](https://cron.qqe2.com)
+
+- 入门案例
+
+1. 导入maven坐标spring-context（已存在）
+2. 启动类添加注解`@EnableScheduling`开启任务调度
+
+```java
+@EnableScheduling 
+public class SkyApplication{
+  public static void main(String[] args){
+    SpringApplication.run(SkyApplication.class,args);
+    log.info("server started");
+  }
+}
+```
+
+3. 自定义定时任务类
+
+```java
+@Component
+public class Mytask{
+  //定时任务，每5s执行一次
+  @Scheduled(cron="0/5 * * * *")
+  public void executeTask(){
+    log.info("定时任务执行:{}",new Date());
+  }
+}
+```
+
+## 21. WebSocket
+
+- 介绍
+
+WebSocket是基于TCP的一种新的网络协议，它实现了浏览器与服务器的全双工通信—浏览器和服务器只需要完成一次握手，两者之间就可以创建持久性的连接，并进行双向数据传输（客户端和服务端首先进行握手操作，然后服务器给客户端一个应答消息，然后双发就可以进行双向通信了）
+
+- HTTP协议和WebSocket协议对比
+
+> - HTTP协议是短连接
+> - WebSocket是长连接
+> - HTTP通信是单向的，基于请求响应模式
+> - WebSocket模式支持双向通信
+> - HTTP和WebSocket底层都是TCP连接、
+
+- 应用场景
+
+> - 视频弹幕
+> - 网页聊天
+> - 体育实况更新
+> - 股票基金报价实时更新
+
+## 22. Apache Echarts
+
+- 介绍
+
+Apache Echarts是一款基于javascript的数据可视化图表库，提供直观，生动，可交互，可个性化定制的数据可视化图表。 
+
+
+
+## 23.Apache POI
+
+Apache POI是一个处理Miscrosoft office各种文件格式的开源项目。简单来说，我们可以使用POI在java程序中对Miscrosoft Office各种文件进行读写操作。一般情况下，POI都是用于操作Excel文件。
+
+- 应用场景
+
+> 1. 银行网银系统可以导出交易明细
+> 2. 各种业务系统导出excel表
+> 3. 批量导入业务数据
+
+
+
+- 使用案例
+
+```java
+public static void write() throws Exception{
+        //在内存中创建一个Excel文件
+        XSSFWorkbook excel = new XSSFWorkbook();
+        //在Excel文件中创建一个Sheet页
+        XSSFSheet sheet = excel.createSheet("info");
+        //在Sheet中创建行对象,rownum编号从0开始
+        XSSFRow row = sheet.createRow(1);
+        //创建单元格并且写入文件内容
+        row.createCell(1).setCellValue("姓名");
+        row.createCell(2).setCellValue("城市");
+
+        //创建一个新行
+        row = sheet.createRow(2);
+        row.createCell(1).setCellValue("张三");
+        row.createCell(2).setCellValue("北京");
+
+        row = sheet.createRow(3);
+        row.createCell(1).setCellValue("李四");
+        row.createCell(2).setCellValue("南京");
+
+        //通过输出流将内存中的Excel文件写入到磁盘
+        FileOutputStream out = new FileOutputStream(new File("D:\\info.xlsx"));
+        excel.write(out);
+
+        //关闭资源
+        out.close();
+        excel.close();
+    }
+
+
+    /**
+     * 通过POI读取Excel文件中的内容
+     * @throws Exception
+     */
+    public static void read() throws Exception{
+        InputStream in = new FileInputStream(new File("D:\\info.xlsx"));
+
+        //读取磁盘上已经存在的Excel文件
+        XSSFWorkbook excel = new XSSFWorkbook(in);
+        //读取Excel文件中的第一个Sheet页
+        XSSFSheet sheet = excel.getSheetAt(0);
+
+        //获取Sheet中最后一行的行号
+        int lastRowNum = sheet.getLastRowNum();
+
+        for (int i = 1; i <= lastRowNum ; i++) {
+            //获得某一行
+            XSSFRow row = sheet.getRow(i);
+            //获得单元格对象
+            String cellValue1 = row.getCell(1).getStringCellValue();
+            String cellValue2 = row.getCell(2).getStringCellValue();
+            System.out.println(cellValue1 + " " + cellValue2);
+        }
+
+        //关闭资源
+        in.close();
+        excel.close();
+    }
+
+    public static void main(String[] args) throws Exception {
+        //write();
+        read();
+    }
+```
+
